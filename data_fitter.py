@@ -75,15 +75,20 @@ class data_fitter():
         self.rH = out1.params["rH"].value
 
 
-
+#TODO implement b and proper Js (check formula)
+# correct sigmas for tau
+# implement fit for populations
+# calculate K classically, with fit and maybe fitting a simple parabola
+# fit the stability profile
 
     def b(self):
         pass
     def J(self, w):
+
         return (self.tau_C / (1 + (w * self.tau_C) ** 2))
 
     def R_cross(self, w, tau_c):
-        return 1 / 10 * self.b ** 2 * (self.J(0, tau_c) - 6 * self.J(2 * w, tau_c))
+        return 1 / 10 * self.b ** 2 * (self.J(0, self.tau_C) - 6 * self.J(2 * w, self.tau_C))
 
 
     def run(self):
