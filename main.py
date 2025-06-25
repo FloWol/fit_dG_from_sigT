@@ -4,6 +4,7 @@
 import argparse
 import logging
 import sys
+from data_fitter import data_fitter
 
 
 ## your input goes here
@@ -11,13 +12,12 @@ model_config = {
     "frequency": 700, #in MHz
     "sigA": "lowest_T",    # lowest_T, fit, true //numeric value to be coded
     "sigB": "0",   # 0, highest_T or fit, true
-    # For the model there is 0,1,2 with more fit parameters with increasing number
-    "model": 1, #model 2 needs fixing
+    "fit_method": "leastsq", # leastsq or amgo
 
 
 }
 
-data_path = ""
+data_path = "/Users/florianwolf/sigT_andrea.txt"
 
 def main():
     """Main entry point of the script."""
@@ -26,7 +26,8 @@ def main():
     try:
         # Your main logic here
         logging.debug("Inside try block. Do something meaningful.")
-
+        fitter = data_fitter(data_path, config=model_config)
+        fitter.run()
 
 
     except Exception as e:
