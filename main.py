@@ -10,7 +10,7 @@ from data_fitter import data_fitter
 ## your input goes here
 model_config = {
     "frequency": 700, #in MHz
-    "sigA": "lowest_T",    # lowest_T, fit, true //numeric value to be coded
+    "sigA": "lowest_T",    # lowest_T // fit, true //numeric value to be coded
     "sigB": "0",   # 0, highest_T or fit, true
     "fit_method": "leastsq", # leastsq or amgo
 

@@ -13,21 +13,21 @@ class data_fitter():
         self.data_file = data_file
 
         self.df = pd.read_csv(data_file, sep="\t")
-        self.df_filtered = self.df[~self.df["Name"].str.contains("Q", na=False)].dropna() #drop pseudo atoms and missing vals
+        self.df_filtered = self.df.dropna() #TODO handle pseudo atoms
         self.T = self.df.columns[3:].astype(float)
         self.k_B = 1.380649e-23 #J/K
         self.freq = config["frequency"]
         self.omega0 = 2.0 * np.pi * self.freq
 
-        self.sigT = self.df_filtered.iloc[:,3:]
-
-        self.viscocity()
+        self.sigT = self.df.iloc[:-1,3:].dropna()
 
 
 
 
 
-    def viscocity(self):
+
+
+    def viscocity(self, T):
         """
         #TODO check parameters
         for water
@@ -37,7 +37,7 @@ class data_fitter():
         B = 4209.0
         C = 0.04527
         D = -3.376e-5
-        mu = A * np.exp(B / self.T + C * self.T + D * self.T ** 2)
+        mu = A * np.exp(B / T + C * T + D * T ** 2)
         self.eta = mu * 1.0e-3
 
     def calc_tau_C(self, T, rH):
@@ -60,7 +60,7 @@ class data_fitter():
 
             diff = data - model
             err = np.linalg.norm(diff)
-            return err
+            return diff
 
         params = Parameters()
         params.add('rH', value=1)
@@ -82,8 +82,9 @@ class data_fitter():
         if "tau_C" in self.df["Name"].values:
 
             tau_c_row = self.df[self.df['Name'] == 'tau_C'].iloc[0].dropna()
-            tau_c_temperatures = tau_c_row.drop(labels='Name').index.tolist().astype(float)
-            tau_c_vals = tau_c_row.drop(labels='Name').values.tolist()
+            tau_c_temperatures = tau_c_row.drop(labels='Name').index.astype(float).to_numpy()
+            tau_c_vals = tau_c_row.drop(labels='Name').values
+            self.viscocity(tau_c_temperatures)
 
             if len(tau_c_vals) == len(self.df.columns[3:]): #tauC for every temperature
                 self.tau_C = tau_c_vals
@@ -91,7 +92,8 @@ class data_fitter():
 
                 rH = self.fit_rH(tau_c_temperatures, tau_c_vals)
                 temperatures = self.df.columns[3:].to_numpy().astype(float)
-                self.tau_C = self.calc_tau_C(temperatures,rH) #TODO only use the ones that are NaN from the experiment
+                self.viscocity(temperatures)
+                self.tau_C = self.calc_tau_C(temperatures,rH) #TODO only use the ones that are NaN from the experiment and the actual ones
         else:
             raise ValueError("No tau_C found")
 
@@ -111,12 +113,12 @@ class data_fitter():
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi  # J s
         J = (1 / 10) * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))  # TODO tau_C needs to be at the correct temp
         a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2
-        return np.power(a * J / sig, 1 / 6)
+        return (a * J[0] / sig)**(1/6) #PFUSCH only takes lowest J not neccesarily corresponding for sig: Only correct for lowest_T
 
 
 
     def R_cross(self, r):
-        return (1 / 10) * self.b(r) ** 2 * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))
+        return np.asarray((1 / 10) * self.b(r) ** 2 * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))[:,np.newaxis])
 
     def sigma_strategy(self):
         #user saftey checks
@@ -128,7 +130,8 @@ class data_fitter():
             raise ValueError(f"Invalid or missing 'sigB': {sigB_type}")
 
         if self.config["sigA"] == "lowest_T":
-            sigA = self.df.columns[3]
+            #TODO also use rows that have nan or Q atoms
+            sigA = self.sigT.iloc[:,0].values #CHECK not sure about the np.abs
             self.sig_A_corrected = self.R_cross(self.r_from_sigma(sigA))
 
 
@@ -159,61 +162,73 @@ class data_fitter():
 
 
 
-
-    def stability_curve(self, Sm, Hm, Cp, Tm):
+    @staticmethod
+    def stability_curve(T, Sm, Hm, Cp, Tm):
         """
         Stability curve model for ΔG vs. T
         """
         k_B = 8.314
-        return (Hm + self.T * Sm + Cp * (self.T - Tm) - self.T * Cp * np.log(self.T / Tm))/(-k_B * self.T)
+        return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm))/(-k_B * T)
 
     def calc_K(self):
-        self.K = ((self.sigT-self.sigB)/self.sig_A_corrected-self.sigT)
+        self.K = ((self.sigT-self.sigB)/self.sig_A_corrected.T-self.sigT)
 
 
-    def delta_G(self, K):
+    @staticmethod
+    def delta_G(T, K):
         """
         Gibbs free energy ΔG = -k_B * T * ln(K)
         T: Temperature (can be array)
         K: Equilibrium constant (same shape as T or broadcastable)
         """
 
-        return -8.314 * self.T * np.log(K)
+        return -8.314 * T * np.log(K)
 
     def fit_stability_curve(self):
-        def residual(params, data):
+        def residual(params, T, data):
             Sm = params["Sm"].value
             Hm = params["Hm"].value
             Cp = params["Cp"].value
             Tm = params["Tm"].value
 
-            model = self.stability_curve(Sm, Hm, Cp, Tm)
+            model = self.stability_curve(T, Sm, Hm, Cp, Tm)
 
             diff = data - model
             err = np.linalg.norm(diff)
-            return err
+            # print(Sm, Hm, Cp, Tm, err)
+            return diff #maybe use err
 
-        params = Parameters()
-        params.add('Sm', value=1)
-        params.add('Hm', value=1)
-        params.add('Cp', value=1)
-        params.add('Tm', value=1)
+        for pair in range(0,self.K.shape[0]):
+            try:
+                pair_name = self.df["Name"][self.K.index[pair]]
+                params = Parameters()
+                params.add('Sm', value=1)
+                params.add('Hm', value=1)
+                params.add('Cp', value=1)
+                params.add('Tm', value=1)
 
-        experimentalData = self.delta_G(self.K)
+                experimentalData = self.delta_G(self.T, self.K.iloc[pair].values)
 
-        mini = lmfit.Minimizer(residual, params, fcn_args=(self.T, experimentalData))
-        out1 = mini.minimize(method=self.config["fit_method"])
+                mini = lmfit.Minimizer(residual, params, fcn_args=(self.T, experimentalData))
+                out1 = mini.minimize(method=self.config["fit_method"])
 
 
-        print("Results of stability fit:")
-        withResults = out1.params
-        withResults.pretty_print()
+                print(f"Results of stability fit for {pair_name}:")
+                withResults = out1.params
+                withResults.pretty_print()
+                plt.plot(self.T, self.delta_G(self.T,self.K.iloc[pair]), ".", alpha=1, label="G" + pair_name)
+                plt.plot(self.T, self.stability_curve(self.T, withResults["Sm"], withResults["Hm"],
+                                                      withResults["Cp"], withResults["Tm"]), label="stability" + pair_name)
+                plt.legend()
 
-        plt.plot(self.T, self.stability_curve(withResults.params["Sm"], withResults.params["Hm"],
-                                              withResults.params["Cp"], withResults.params["Tm"]), label="stability")
-        plt.plot(self.T, self.ln_K(), ".", alpha=0.5, label="Name")
+
+
+            except Exception as e:
+                print(f"Error fitting stability curve for {pair_name} with error {e}")
+
+
         plt.xlabel("Temperature (K)")
-        plt.ylabel("ln(K)")
+        plt.ylabel("dG")
         plt.legend()
         plt.show()
 
@@ -224,14 +239,34 @@ class data_fitter():
 
 
         # correct sigA for correlation times at different temperatures
+
         self.correct_tau_C()
         self.sigma_strategy()
+        plt.plot(self.T, self.sigT.T)
+        plt.xlabel("Temperature (K)")
+        plt.ylabel("sig(T)")
+        plt.legend()
+        plt.show()
+
         self.calc_K()
+        plt.plot(self.T, self.K.T, alpha=0.5, label="K", marker=".")
+        plt.xlabel("Temperature (K)")
+        plt.ylabel("K")
+        plt.legend()
+        plt.show()
+
+        plt.plot(self.T, self.delta_G(self.T, self.K).T, alpha=0.5, label="G", marker=".")
+        plt.xlabel("Temperature (K)")
+        plt.ylabel("delta G")
+        plt.legend()
+        plt.show()
+
         self.fit_stability_curve()
-        # calculate ln(K) from the sigmas
 
 
-        # fit the stability profiles
+        #TODO check each individual step and see if things run correctly
+        #TODO look into unit testing
+
 
 
 
