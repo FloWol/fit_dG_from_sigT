@@ -13,7 +13,7 @@ class data_fitter():
         self.data_file = data_file
 
         self.df = pd.read_csv(data_file, sep="\t")
-        self.df_filtered = self.df.dropna() #TODO handle pseudo atoms
+        self.df_filtered = self.df.dropna() # TODO handle pseudo atoms
         self.T = self.df.columns[3:].astype(float)
         self.k_B = 1.380649e-23 #J/K
         self.freq = config["frequency"]

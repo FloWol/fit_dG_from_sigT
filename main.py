@@ -20,7 +20,7 @@ model_config = {
 data_path = "/Users/florianwolf/sigT_andrea.txt"
 
 def main():
-    """Main entry point of the script."""
+    """Main entry point of the script"""
     logging.info("Starting the program...")
 
     try:
