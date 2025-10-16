@@ -10,17 +10,21 @@ from data_fitter import data_fitter
 ## your input goes here
 model_config = {
     "frequency": 700, #in MHz
-    "sigA": "lowest_T",    # lowest_T // fit, true //numeric value to be coded
-    "sigB": "0",   # 0, highest_T or fit, true
-    "fit_method": "leastsq", # leastsq or amgo
+    "sigA": "lowest_T",    # lowest_T, or custom for usage of sigA values in sigA column // fit,or, numeric value to be coded
+    "sigB": "0",   # 0, highest_T or fit or custom for usage of values from file
+    "fit_method": "amgo", # leastsq or amgo or anything scipy supports (amgo is better, but takes longer, but better take amgo)
+    "fit_SM": False, # True or False
+    "melting_temperature": 250, # is just used as an initial guess for Tm in the fit
 
+    # test_features (will be removed in the future)
+    "ignore_lowest_T": True, # not recommended but often necessary
 
 }
-
-data_path = "/Users/florianwolf/sigT_andrea.txt"
+########### PUT THE PATH TO YOUR DATA FILE HERE ###################
+data_path = "/Users/florianwolf/Downloads/andrea_sigT.txt"
 
 def main():
-    """Main entry point of the script"""
+    """Main entry point of the script."""
     logging.info("Starting the program...")
 
     try:

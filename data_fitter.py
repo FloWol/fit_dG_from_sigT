@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import scipy as sp
 import pandas as pd
@@ -11,15 +13,20 @@ class data_fitter():
     def __init__(self, data_file, config=None):
         self.config = config
         self.data_file = data_file
-
         self.df = pd.read_csv(data_file, sep="\t")
-        self.df_filtered = self.df.dropna() # TODO handle pseudo atoms
+        self.df_filtered = self.df.dropna() #TODO handle pseudo atoms
         self.T = self.df.columns[3:].astype(float)
+
+        n_colors = self.df.shape[0]
+        base_colors = list(plt.cm.tab20.colors)  # 20 distinct colors
+        self.colors = [base_colors[i % len(base_colors)] for i in range(n_colors)]
+
+
         self.k_B = 1.380649e-23 #J/K
         self.freq = config["frequency"]
         self.omega0 = 2.0 * np.pi * self.freq
 
-        self.sigT = self.df.iloc[:-1,3:].dropna()
+        self.sigT = self.df.iloc[:-1,3:].dropna() #TODO handle data with NaN
 
 
 
@@ -112,8 +119,10 @@ class data_fitter():
         vaccum_perm = 4.0e-7 * np.pi  # vacuum permeability
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi  # J s
         J = (1 / 10) * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))  # TODO tau_C needs to be at the correct temp
-        a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2
-        return (a * J[0] / sig)**(1/6) #PFUSCH only takes lowest J not neccesarily corresponding for sig: Only correct for lowest_T
+        a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2 #check for sign #minus is right
+        intermediate_result = (a * J[0] / sig)
+        #signed_intermediate = np.sign(intermediate_result)*intermediate_result #check if this is needed
+        return intermediate_result**(1/6) #PFUSCH only takes lowest J not neccesarily corresponding for sig: Only correct for lowest_T
 
 
 
@@ -163,16 +172,32 @@ class data_fitter():
 
 
     @staticmethod
-    def stability_curve(T, Sm, Hm, Cp, Tm):
+    def stability_curve_simple(T, Sm, Hm, Cp, Tm):
         """
         Stability curve model for ΔG vs. T
         """
-        k_B = 8.314
-        return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm))/(-k_B * T)
+        k_B = R = 8.314
 
+        # return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm))/(-k_B * T) # Fitting for ln K with Sm
+        return -((Hm/R)*(1/Tm-1/T) + (Cp/R) * (Tm/T - 1 + np.log(T/Tm))) # fitting for ln K
+    @staticmethod
+    def stability_curve_SM(T, Sm, Hm, Cp, Tm):
+        k_B = R = 8.314
+        return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm)) / (-k_B * T)
+
+    def which_stability_curve(self):
+        if self.config["fit_SM"] == True:
+            return self.stability_curve_SM
+        else:
+            print("Ignore Sm values as they are not fit")
+            return self.stability_curve_simple
+
+    #TODO np.abs should not be needed
     def calc_K(self):
-        self.K = ((self.sigT-self.sigB)/self.sig_A_corrected.T-self.sigT)
-
+        if self.config["ignore_lowest_T"] == True:
+            self.K = np.abs(((self.sigT-self.sigB)/(self.sig_A_corrected.T-self.sigT)).iloc[:,1:]) #PFUSCH .iloc[:,1:] is super unscientific as it removes the first diverging value same for np.abs
+        else:
+            self.K = np.abs(((self.sigT - self.sigB) / (self.sig_A_corrected.T - self.sigT)))
 
     @staticmethod
     def delta_G(T, K):
@@ -182,16 +207,18 @@ class data_fitter():
         K: Equilibrium constant (same shape as T or broadcastable)
         """
 
-        return -8.314 * T * np.log(K)
+        return -8.314 * T.to_numpy() * np.log(K.values.astype(float))
 
     def fit_stability_curve(self):
+        os.makedirs("plots", exist_ok=True)
+        stability_curve = self.which_stability_curve()
         def residual(params, T, data):
             Sm = params["Sm"].value
             Hm = params["Hm"].value
             Cp = params["Cp"].value
             Tm = params["Tm"].value
 
-            model = self.stability_curve(T, Sm, Hm, Cp, Tm)
+            model = stability_curve(T, Sm, Hm, Cp, Tm) # ln K
 
             diff = data - model
             err = np.linalg.norm(diff)
@@ -202,12 +229,12 @@ class data_fitter():
             try:
                 pair_name = self.df["Name"][self.K.index[pair]]
                 params = Parameters()
-                params.add('Sm', value=1)
+                params.add('Sm', value=0)
                 params.add('Hm', value=1)
                 params.add('Cp', value=1)
                 params.add('Tm', value=1)
 
-                experimentalData = self.delta_G(self.T, self.K.iloc[pair].values)
+                experimentalData = np.log(self.K.iloc[pair].values.astype(float)) # self.delta_G(self.T, self.K.iloc[pair].values)
 
                 mini = lmfit.Minimizer(residual, params, fcn_args=(self.T, experimentalData))
                 out1 = mini.minimize(method=self.config["fit_method"])
@@ -216,10 +243,16 @@ class data_fitter():
                 print(f"Results of stability fit for {pair_name}:")
                 withResults = out1.params
                 withResults.pretty_print()
-                plt.plot(self.T, self.delta_G(self.T,self.K.iloc[pair]), ".", alpha=1, label="G" + pair_name)
-                plt.plot(self.T, self.stability_curve(self.T, withResults["Sm"], withResults["Hm"],
-                                                      withResults["Cp"], withResults["Tm"]), label="stability" + pair_name)
+                color = self.colors[pair]
+                plt.plot(self.T, self.K.iloc[pair], ".", alpha=1, label="G" + pair_name, color=color)
+                # plt.plot(self.T, self.delta_G(self.T,self.K.iloc[pair]), ".", alpha=1, label="G" + pair_name) # fits dG
+                plt.plot(self.T, np.exp(stability_curve(self.T, withResults["Sm"], withResults["Hm"],
+                                                      withResults["Cp"], withResults["Tm"])), label="stability" + pair_name, color=color)
+                plt.xlabel("Temperature (K)")
+                plt.ylabel("Equilibrium constant K(T)")
                 plt.legend()
+                plt.savefig(f"plots/{pair_name}.pdf", format="pdf")
+                plt.show()
 
 
 
@@ -237,30 +270,45 @@ class data_fitter():
     def run(self):
 
 
-
         # correct sigA for correlation times at different temperatures
-
+        print("Choosing/interpolating correlation time ...")
         self.correct_tau_C()
+        print("Picking the correct sigma ...")
         self.sigma_strategy()
-        plt.plot(self.T, self.sigT.T)
+        print("Calculating K analytically ...")
+        self.calc_K()
+
+
+        for pair in range(0,self.K.shape[0]):
+            name = self.df["Name"][self.K.index[pair]]
+            plt.plot(self.T, self.sigT.iloc[pair,:], label=name)
         plt.xlabel("Temperature (K)")
         plt.ylabel("sig(T)")
         plt.legend()
         plt.show()
 
-        self.calc_K()
-        plt.plot(self.T, self.K.T, alpha=0.5, label="K", marker=".")
+        if self.config["ignore_lowest_T"] == True:
+            self.T = self.T[1:]  # PFUSCH unscientific
+        for pair in range(0, self.K.shape[0]):
+            name = self.df["Name"][self.K.index[pair]]
+            plt.plot(self.T, self.K.iloc[pair,:], alpha=0.5, label=name, marker=".")
+
         plt.xlabel("Temperature (K)")
         plt.ylabel("K")
         plt.legend()
         plt.show()
 
-        plt.plot(self.T, self.delta_G(self.T, self.K).T, alpha=0.5, label="G", marker=".")
+        for pair in range(0, self.K.shape[0]):
+            name = self.df["Name"][self.K.index[pair]]
+            plt.plot(self.T, self.delta_G(self.T, self.K)[pair,:], alpha=0.5, label=name, marker=".")
+
         plt.xlabel("Temperature (K)")
-        plt.ylabel("delta G")
+        plt.ylabel("ΔG [J/mol]")
         plt.legend()
         plt.show()
 
+
+        print("Fitting stability curve ...")
         self.fit_stability_curve()
 
 
