@@ -6,12 +6,13 @@ import pandas as pd
 import lmfit
 from lmfit import minimize, Parameters
 import matplotlib.pyplot as plt
-
+from pygments.unistring import Sm
 
 
 class data_fitter():
     def __init__(self, data_file, config=None):
         self.config = config
+        self.initial_Tm = self.config['Tm']
         self.data_file = data_file
         self.df = pd.read_csv(data_file, sep="\t")
         self.df_filtered = self.df.dropna() #TODO handle pseudo atoms
@@ -20,6 +21,8 @@ class data_fitter():
         n_colors = self.df.shape[0]
         base_colors = list(plt.cm.tab20.colors)  # 20 distinct colors
         self.colors = [base_colors[i % len(base_colors)] for i in range(n_colors)]
+
+
 
 
         self.k_B = 1.380649e-23 #J/K
@@ -70,7 +73,7 @@ class data_fitter():
             return diff
 
         params = Parameters()
-        params.add('rH', value=1)
+        params.add('rH', value=2E-9)
 
 
         mini = lmfit.Minimizer(residual, params, fcn_args=(T, tauC_data))
@@ -118,10 +121,10 @@ class data_fitter():
         gyromag_radius = 26.7522128 * 1.0e7  # rad per Tesla
         vaccum_perm = 4.0e-7 * np.pi  # vacuum permeability
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi  # J s
-        J = (1 / 10) * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))  # TODO tau_C needs to be at the correct temp
-        a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2 #check for sign #minus is right
+        J = (1 / 10) * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))
+        a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2
         intermediate_result = (a * J[0] / sig)
-        #signed_intermediate = np.sign(intermediate_result)*intermediate_result #check if this is needed
+        #signed_intermediate = np.sign(intermediate_result)*intermediate_result #in case there are sign errors
         return intermediate_result**(1/6) #PFUSCH only takes lowest J not neccesarily corresponding for sig: Only correct for lowest_T
 
 
@@ -141,16 +144,20 @@ class data_fitter():
         if self.config["sigA"] == "lowest_T":
             #TODO also use rows that have nan or Q atoms
             sigA = self.sigT.iloc[:,0].values #CHECK not sure about the np.abs
-            self.sig_A_corrected = self.R_cross(self.r_from_sigma(sigA))
+            if self.config["correct_for_correlation_time"] == True:
+                self.sig_A_corrected = self.R_cross(self.r_from_sigma(sigA))
+            else:
+                print("no correction for sigma A is performed")
+                self.sig_A_corrected = sigA
 
 
         if self.config["sigA"] == "fit":
-            self.sigA = 0 # wrong
+            raise NotImplementedError
         if self.config["sigA"] == "custom":
             self.sigA = self.df["sigA"]
         if self.config["sigA"] == "custom_temp":
-            raise NotImplementedError
-            self.sigA = self.df[self.config["custom_temp"]] #TODO check with temperature and file
+            self.sigA = self.df[self.config["custom_temp"]]  # TODO check with temperature and file
+
 
 
         if self.config["sigB"] == "0":
@@ -161,8 +168,8 @@ class data_fitter():
         if self.config["sigB"] == "custom":
             self.sigB = self.df["sigB"]
         if self.config["sigB"] == "custom_temp":
-            raise NotImplementedError
             self.sigB = self.df[self.config["custom_temp"]] #TODO check with temperature and file
+
         # elif self.config["sigB"] == "fit":
 
 
@@ -180,24 +187,40 @@ class data_fitter():
 
         # return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm))/(-k_B * T) # Fitting for ln K with Sm
         return -((Hm/R)*(1/Tm-1/T) + (Cp/R) * (Tm/T - 1 + np.log(T/Tm))) # fitting for ln K
+
+
     @staticmethod
     def stability_curve_SM(T, Sm, Hm, Cp, Tm):
         k_B = R = 8.314
         return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm)) / (-k_B * T)
+    @staticmethod
+    def vant_Hoff_Sm(T, Sm, Hm, Cp, Tm):
+        R = 8.314
+        return Hm/(R*T) + Sm/R
+    @staticmethod
+    def vant_Hoff(T, Sm, Hm, Cp, Tm):
+        R = 8.314
+        return Hm/R * (1/Tm - 1/T)
 
     def which_stability_curve(self):
-        if self.config["fit_SM"] == True:
-            return self.stability_curve_SM
-        else:
-            print("Ignore Sm values as they are not fit")
-            return self.stability_curve_simple
+        if self.config["Cp_model"] == True:
+            if self.config["fit_SM"] == True:
+                return self.stability_curve_SM
+            else:
+                print("Ignore Sm values as they are not fit")
+                return self.stability_curve_simple
+        else:  # Use van't Hoff equation
+            if self.config["fit_SM"] == True:
+                return self.vant_Hoff_Sm
+            else:
+                print("Ignore Sm values as they are not fit")
+                return self.vant_Hoff
 
-    #TODO np.abs should not be needed
     def calc_K(self):
         if self.config["ignore_lowest_T"] == True:
-            self.K = np.abs(((self.sigT-self.sigB)/(self.sig_A_corrected.T-self.sigT)).iloc[:,1:]) #PFUSCH .iloc[:,1:] is super unscientific as it removes the first diverging value same for np.abs
+            self.K = ((self.sigT-self.sigB)/(self.sig_A_corrected-self.sigT.T).T).iloc[:,1:] #PFUSCH .iloc[:,1:] removes the first diverging value
         else:
-            self.K = np.abs(((self.sigT - self.sigB) / (self.sig_A_corrected.T - self.sigT)))
+            self.K = ((self.sigT - self.sigB) / (self.sig_A_corrected.T - self.sigT))
 
     @staticmethod
     def delta_G(T, K):
@@ -232,7 +255,15 @@ class data_fitter():
                 params.add('Sm', value=0)
                 params.add('Hm', value=1)
                 params.add('Cp', value=1)
-                params.add('Tm', value=1)
+
+                if self.config["Tm"] is not None:
+                    if self.config["fix_Tm"]:
+                        params.add('Tm', value=self.initial_Tm, vary=False)
+                        print("Tm is fixed, ignore any values outputted for Tm")
+                    else:
+                        params.add('Tm', value=self.initial_Tm, vary=True)
+                else:
+                    params.add('Tm', value=1)
 
                 experimentalData = np.log(self.K.iloc[pair].values.astype(float)) # self.delta_G(self.T, self.K.iloc[pair].values)
 
