@@ -121,19 +121,25 @@ class data_fitter():
         gyromag_radius = 26.7522128 * 1.0e7  # rad per Tesla
         vaccum_perm = 4.0e-7 * np.pi  # vacuum permeability
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi  # J s
-        J = (1 / 10) * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))
+
+        # Calculate J only for the lowest temperature
+        tau_C_lowest_T = self.tau_C[0]
+        J_lowest_T = (1 / 10) * (self.J(0, tau_C_lowest_T) - 6 * self.J(2 * self.omega0, tau_C_lowest_T))
+
         a = (-(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi)) ** 2
-        intermediate_result = (a * J[0] / sig)
-        #signed_intermediate = np.sign(intermediate_result)*intermediate_result #in case there are sign errors
-        return intermediate_result**(1/6) #PFUSCH only takes lowest J not neccesarily corresponding for sig: Only correct for lowest_T
+        intermediate_result = (a * J_lowest_T / sig)
+        # signed_intermediate = np.sign(intermediate_result)*intermediate_result #in case there are sign errors
+        return intermediate_result ** (1 / 6)
 
 
 
     def R_cross(self, r):
-        return np.asarray((1 / 10) * self.b(r) ** 2 * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))[:,np.newaxis])
+        J_values = self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C)
+        b_r_squared = self.b(r) ** 2
+        return (1 / 10) * np.outer(J_values, b_r_squared)
 
     def sigma_strategy(self):
-        #user saftey checks
+        # user saftey checks
         sigA_type = self.config.get("sigA")
         if sigA_type not in {"lowest_T", "fit", "true"}:
             raise ValueError(f"Invalid or missing 'sigA': {sigA_type}")
@@ -142,10 +148,13 @@ class data_fitter():
             raise ValueError(f"Invalid or missing 'sigB': {sigB_type}")
 
         if self.config["sigA"] == "lowest_T":
-            #TODO also use rows that have nan or Q atoms
-            sigA = self.sigT.iloc[:,0].values #CHECK not sure about the np.abs
-            if self.config["correct_for_correlation_time"] == True:
-                self.sig_A_corrected = self.R_cross(self.r_from_sigma(sigA))
+            sigA = self.sigT.iloc[:, 0].values  # CHECK not sure about the np.abs
+            if self.config["correct_for_correlation_time"]:
+                # Temperature-corrected sigma calculation
+                J_all_temps = self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C)
+                J_lowest_T = J_all_temps[0]
+                self.sig_A_corrected = np.outer(J_all_temps / J_lowest_T, sigA)
+
             else:
                 print("no correction for sigma A is performed")
                 self.sig_A_corrected = sigA
