@@ -4,6 +4,9 @@
 import argparse
 import logging
 import sys
+import os
+import json
+from datetime import datetime
 from data_fitter import data_fitter
 
 ## your input goes here
@@ -11,6 +14,7 @@ model_config = {
     # General settings
     "frequency": 700,  # in MHz
     "fit_method": "amgo", # leastsq or amgo or anything scipy supports (amgo is better, but takes longer, but better take amgo)
+    "max_iterations": 1000,
 
     # reference sigma settings
     "sigA": "lowest_T", # lowest_T, or custom for usage of sigA values in sigA column (not tested), // fit,or, numeric value to be coded
@@ -33,12 +37,30 @@ data_path = "/Users/florianwolf/Downloads/sig_andrea.txt" #"/Users/florianwolf/D
 
 def main():
     """Main entry point of the script."""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = f"run_{timestamp}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    config_file = os.path.join(output_dir, "model_config.json")
+    with open(config_file, "w") as f:
+        json.dump(model_config, f, indent=4)
+
+    log_file = os.path.join(output_dir, "fit_log.txt")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
     logging.info("Starting the program...")
 
     try:
         # Your main logic here
         logging.debug("Inside try block. Do something meaningful.")
-        fitter = data_fitter(data_path, config=model_config)
+        fitter = data_fitter(data_path, config=model_config, output_dir=output_dir)
         fitter.run()
 
 
