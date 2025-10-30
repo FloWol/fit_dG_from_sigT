@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+This script is the main entry point for the NMR data fitting program.
+
+It sets up the configuration for the data fitting, initializes the data_fitter class,
+and runs the fitting process. It also handles the creation of a unique output directory
+for each run, where it saves the configuration, logs, and plots.
+"""
 
 import argparse
 import logging
@@ -36,7 +43,12 @@ data_path = "/Users/florianwolf/Downloads/sig_andrea.txt" #"/Users/florianwolf/D
 
 
 def main():
-    """Main entry point of the script."""
+    """
+    Main entry point of the script.
+
+    This function sets up the output directory, configures logging,
+    and runs the data fitting process.
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_dir = f"run_{timestamp}"
     os.makedirs(output_dir, exist_ok=True)

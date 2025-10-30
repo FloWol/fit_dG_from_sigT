@@ -10,7 +10,17 @@ from pygments.unistring import Sm
 
 
 class data_fitter():
+    """A class to fit experimental NMR data to thermodynamic models."""
+
     def __init__(self, data_file, config=None, output_dir=None):
+        """
+        Initializes the data_fitter class.
+
+        Args:
+            data_file (str): The path to the input data file.
+            config (dict, optional): A dictionary of configuration options. Defaults to None.
+            output_dir (str, optional): The path to the output directory. Defaults to None.
+        """
         self.config = config
         self.initial_Tm = self.config['Tm']
         self.data_file = data_file
@@ -29,6 +39,12 @@ class data_fitter():
         self.sigT = self.df.iloc[:-1, 3:]
 
     def viscocity(self, T):
+        """
+        Calculates the viscosity of water at a given temperature.
+
+        Args:
+            T (float): The temperature in Kelvin.
+        """
         A = 1.856e-11
         B = 4209.0
         C = 0.04527
@@ -37,9 +53,29 @@ class data_fitter():
         self.eta = mu * 1.0e-3
 
     def calc_tau_C(self, T, rH):
+        """
+        Calculates the rotational correlation time (tau_C) from the Stokes-Einstein equation.
+
+        Args:
+            T (float): The temperature in Kelvin.
+            rH (float): The hydrodynamic radius in meters.
+
+        Returns:
+            float: The rotational correlation time in seconds.
+        """
         return 4.0 * np.pi * self.eta * rH ** 3 / (3.0 * self.k_B * T)
 
     def fit_rH(self, T, tauC_data):
+        """
+        Fits the hydrodynamic radius (rH) to the experimental correlation times.
+
+        Args:
+            T (np.ndarray): An array of temperatures in Kelvin.
+            tauC_data (np.ndarray): An array of experimental correlation times.
+
+        Returns:
+            float: The fitted hydrodynamic radius in meters.
+        """
         def residual(params, T, data):
             rH = params["rH"].value
             model = self.calc_tau_C(T, rH)
@@ -59,6 +95,10 @@ class data_fitter():
         return out1.params["rH"].value
 
     def correct_tau_C(self):
+        """
+        Corrects the correlation times for temperature dependence.
+        If the experimental data is incomplete, it fits the hydrodynamic radius and calculates the missing values.
+        """
         if "tau_C" in self.df["Name"].values:
             tau_c_row = self.df[self.df['Name'] == 'tau_C'].iloc[0].dropna()
             tau_c_temperatures = tau_c_row.drop(labels='Name').index.astype(float).to_numpy()
@@ -76,15 +116,43 @@ class data_fitter():
             raise ValueError("No tau_C found")
 
     def b(self, r):
+        """
+        Calculates the dipole-dipole coupling constant.
+
+        Args:
+            r (float): The distance between the two dipoles in meters.
+
+        Returns:
+            float: The dipole-dipole coupling constant.
+        """
         gyromag_radius = 26.7522128 * 1.0e7
         vaccum_perm = 4.0e-7 * np.pi
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi
         return -(reduced_planck * vaccum_perm * gyromag_radius ** 2) / (4 * np.pi * r ** 3)
 
     def J(self, omega, tau):
+        """
+        Calculates the spectral density function.
+
+        Args:
+            omega (float): The angular frequency.
+            tau (float): The correlation time.
+
+        Returns:
+            float: The value of the spectral density function.
+        """
         return (tau / (1 + (omega * tau) ** 2))
 
     def r_from_sigma(self, sig):
+        """
+        Calculates the distance between two dipoles from the cross-relaxation rate (sigma).
+
+        Args:
+            sig (float): The cross-relaxation rate.
+
+        Returns:
+            float: The distance in meters.
+        """
         gyromag_radius = 26.7522128 * 1.0e7
         vaccum_perm = 4.0e-7 * np.pi
         reduced_planck = 6.62606957e-34 / 2.0 / np.pi
@@ -94,9 +162,21 @@ class data_fitter():
         return intermediate_result ** (1 / 6)
 
     def R_cross(self, r):
+        """
+        Calculates the cross-relaxation rate (sigma) from the distance between two dipoles.
+
+        Args:
+            r (float): The distance in meters.
+
+        Returns:
+            float: The cross-relaxation rate.
+        """
         return np.asarray((1 / 10) * self.b(r) ** 2 * (self.J(0, self.tau_C) - 6 * self.J(2 * self.omega0, self.tau_C))[:, np.newaxis])
 
     def sigma_strategy(self):
+        """
+        Selects the appropriate strategy for determining sigma_A and sigma_B based on the configuration.
+        """
         sigA_type = self.config.get("sigA")
         if sigA_type not in {"lowest_T", "fit", "true"}:
             raise ValueError(f"Invalid or missing 'sigA': {sigA_type}")
@@ -131,25 +211,83 @@ class data_fitter():
 
     @staticmethod
     def stability_curve_simple(T, Sm, Hm, Cp, Tm):
+        """
+        A simplified stability curve model for ΔG vs. T.
+
+        Args:
+            T (np.ndarray): An array of temperatures in Kelvin.
+            Sm (float): The entropy at the melting temperature.
+            Hm (float): The enthalpy at the melting temperature.
+            Cp (float): The heat capacity.
+            Tm (float): The melting temperature in Kelvin.
+
+        Returns:
+            np.ndarray: An array of ln(K) values.
+        """
         R = 8.314
         return -((Hm / R) * (1 / Tm - 1 / T) + (Cp / R) * (Tm / T - 1 + np.log(T / Tm)))
 
     @staticmethod
     def stability_curve_SM(T, Sm, Hm, Cp, Tm):
+        """
+        A stability curve model for ΔG vs. T that includes Sm.
+
+        Args:
+            T (np.ndarray): An array of temperatures in Kelvin.
+            Sm (float): The entropy at the melting temperature.
+            Hm (float): The enthalpy at the melting temperature.
+            Cp (float): The heat capacity.
+            Tm (float): The melting temperature in Kelvin.
+
+        Returns:
+            np.ndarray: An array of ln(K) values.
+        """
         R = 8.314
         return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm)) / (-R * T)
 
     @staticmethod
     def vant_Hoff_Sm(T, Sm, Hm, Cp, Tm):
+        """
+        The van't Hoff equation including Sm.
+
+        Args:
+            T (np.ndarray): An array of temperatures in Kelvin.
+            Sm (float): The entropy at the melting temperature.
+            Hm (float): The enthalpy at the melting temperature.
+            Cp (float): The heat capacity.
+            Tm (float): The melting temperature in Kelvin.
+
+        Returns:
+            np.ndarray: An array of ln(K) values.
+        """
         R = 8.314
         return Hm / (R * T) + Sm / R
 
     @staticmethod
     def vant_Hoff(T, Sm, Hm, Cp, Tm):
+        """
+        The van't Hoff equation.
+
+        Args:
+            T (np.ndarray): An array of temperatures in Kelvin.
+            Sm (float): The entropy at the melting temperature.
+            Hm (float): The enthalpy at the melting temperature.
+            Cp (float): The heat capacity.
+            Tm (float): The melting temperature in Kelvin.
+
+        Returns:
+            np.ndarray: An array of ln(K) values.
+        """
         R = 8.314
         return Hm / R * (1 / Tm - 1 / T)
 
     def which_stability_curve(self):
+        """
+        Selects the appropriate stability curve model based on the configuration.
+
+        Returns:
+            function: The selected stability curve function.
+        """
         if self.config["Cp_model"]:
             if self.config["fit_SM"]:
                 return self.stability_curve_SM
@@ -164,6 +302,9 @@ class data_fitter():
                 return self.vant_Hoff
 
     def calc_K(self):
+        """
+        Calculates the equilibrium constant (K) from the experimental data.
+        """
         if self.config["ignore_lowest_T"]:
             self.K = ((self.sigT - self.sigB) / (self.sig_A_corrected - self.sigT.T).T).iloc[:, 1:]
         else:
@@ -171,9 +312,22 @@ class data_fitter():
 
     @staticmethod
     def delta_G(T, K):
+        """
+        Calculates the Gibbs free energy (ΔG) from the equilibrium constant (K).
+
+        Args:
+            T (pd.Series): A pandas Series of temperatures in Kelvin.
+            K (pd.Series): A pandas Series of equilibrium constants.
+
+        Returns:
+            np.ndarray: An array of ΔG values in J/mol.
+        """
         return -8.314 * T.to_numpy() * np.log(K.values.astype(float))
 
     def fit_stability_curve(self):
+        """
+        Fits the experimental data to the selected stability curve model.
+        """
         for pair in range(self.K.shape[0]):
             try:
                 pair_name = self.df["Name"][self.K.index[pair]]
@@ -244,6 +398,9 @@ class data_fitter():
         plt.show()
 
     def run(self):
+        """
+        Runs the entire data fitting process.
+        """
         logging.info("Choosing/interpolating correlation time ...")
         self.correct_tau_C()
         logging.info("Picking the correct sigma ...")
