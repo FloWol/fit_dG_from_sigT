@@ -9,7 +9,7 @@ from data_fitter import data_fitter
 ## your input goes here
 model_config = {
     # General settings
-    "frequency": 700,  # in MHz
+    "frequency": 700,  # in MHz›
     "fit_method": "amgo", # leastsq or amgo or anything scipy supports (amgo is better, but takes longer, but better take amgo)
 
     # reference sigma settings
@@ -18,9 +18,10 @@ model_config = {
     "correct_for_correlation_time": False, # recommended: True corrects sigma for T-dependent global correlation time, False takes
 
     # Fitting equation settings
-    "Cp_model": True, # True/False, False results in the Use of the van't Hoff equation
-    "fit_SM": False,  # True or False
-    "Tm": 330,  # optional, is just used as an initial guess for Tm in the fit, numeric value in K or None (sets value to 1)
+    "Cp_model": False, # True/False, False results in the Use of the van't Hoff equation
+    # for van'T Hoff fitting fit_Sm = True is recomended, when using Cp_model = True, fit_Sm = False is recomended to prevent overfitting
+    "fit_SM": True,  # True or False #
+    "Tm": 300,  # optional, is just used as an initial guess for Tm in the fit, numeric value in K or None (sets value to 1)
     "fix_Tm": False,  # True of False, if True Tm won't be fit (to be used with setting Tm above)
 
     # test_features (will be removed in the future)

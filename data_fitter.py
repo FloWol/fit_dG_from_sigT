@@ -192,15 +192,15 @@ class data_fitter():
     @staticmethod
     def stability_curve_SM(T, Sm, Hm, Cp, Tm):
         k_B = R = 8.314
-        return (Hm + T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm)) / (-k_B * T)
+        return (Hm - T * Sm + Cp * (T - Tm) - T * Cp * np.log(T / Tm)) / (-k_B * T)
     @staticmethod
     def vant_Hoff_Sm(T, Sm, Hm, Cp, Tm):
         R = 8.314
-        return Hm/(R*T) + Sm/R
+        return Hm/(R*T) - Sm/R
     @staticmethod
     def vant_Hoff(T, Sm, Hm, Cp, Tm):
         R = 8.314
-        return Hm/R * (1/Tm - 1/T)
+        return (Hm/R) * (1/Tm - 1/T)
 
     def which_stability_curve(self):
         if self.config["Cp_model"] == True:
@@ -210,7 +210,9 @@ class data_fitter():
                 print("Ignore Sm values as they are not fit")
                 return self.stability_curve_simple
         else:  # Use van't Hoff equation
+            print("Ignore Cp in the fitting parameters")
             if self.config["fit_SM"] == True:
+                print("Ignore Tm in the fitting parameters")
                 return self.vant_Hoff_Sm
             else:
                 print("Ignore Sm values as they are not fit")
@@ -244,7 +246,7 @@ class data_fitter():
             model = stability_curve(T, Sm, Hm, Cp, Tm) # ln K
 
             diff = data - model
-            err = np.linalg.norm(diff)
+            #err = np.linalg.norm(diff)
             # print(Sm, Hm, Cp, Tm, err)
             return diff #maybe use err
 
@@ -253,7 +255,7 @@ class data_fitter():
                 pair_name = self.df["Name"][self.K.index[pair]]
                 params = Parameters()
                 params.add('Sm', value=0)
-                params.add('Hm', value=1)
+                params.add('Hm', value=1000)
                 params.add('Cp', value=1)
 
                 if self.config["Tm"] is not None:
@@ -261,7 +263,7 @@ class data_fitter():
                         params.add('Tm', value=self.initial_Tm, vary=False)
                         print("Tm is fixed, ignore any values outputted for Tm")
                     else:
-                        params.add('Tm', value=self.initial_Tm, vary=True)
+                        params.add('Tm', value=self.initial_Tm, vary=True, min=100, max=400)
                 else:
                     params.add('Tm', value=1)
 
@@ -275,12 +277,12 @@ class data_fitter():
                 withResults = out1.params
                 withResults.pretty_print()
                 color = self.colors[pair]
-                plt.plot(self.T, self.K.iloc[pair], ".", alpha=1, label="G" + pair_name, color=color)
+                plt.plot(self.T, -8.314*self.T*np.log(self.K.iloc[pair]), ".", alpha=1, label=pair_name, color=color)
                 # plt.plot(self.T, self.delta_G(self.T,self.K.iloc[pair]), ".", alpha=1, label="G" + pair_name) # fits dG
-                plt.plot(self.T, np.exp(stability_curve(self.T, withResults["Sm"], withResults["Hm"],
-                                                      withResults["Cp"], withResults["Tm"])), label="stability" + pair_name, color=color)
+                plt.plot(self.T, -8.314*self.T*stability_curve(self.T, withResults["Sm"], withResults["Hm"],
+                                                      withResults["Cp"], withResults["Tm"]), label="stability" + pair_name, color=color)
                 plt.xlabel("Temperature (K)")
-                plt.ylabel("Equilibrium constant K(T)")
+                plt.ylabel(r"$\Delta G [J/mol]$")
                 plt.legend()
                 plt.savefig(f"plots/{pair_name}.pdf", format="pdf")
                 plt.show()
@@ -289,12 +291,6 @@ class data_fitter():
 
             except Exception as e:
                 print(f"Error fitting stability curve for {pair_name} with error {e}")
-
-
-        plt.xlabel("Temperature (K)")
-        plt.ylabel("dG")
-        plt.legend()
-        plt.show()
 
 
 
