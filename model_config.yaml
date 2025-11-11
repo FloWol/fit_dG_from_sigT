@@ -1,6 +1,6 @@
 # General settings
 "frequency": 700  # in MHz
-"fit_method": "amgo"  # leastsq or amgo or anything scipy supports
+"fit_method": "leastsq"  # leastsq or amgo or anything scipy supports
 "data_path": "/Users/florianwolf/Downloads/sig_andrea.txt"
 
 # reference sigma settings

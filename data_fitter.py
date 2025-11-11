@@ -34,8 +34,6 @@ class data_fitter():
                 self.df = pd.read_csv(data_file)
             except:
                 print("Loading as .csv did not work. Please check your file for correctness")
-
-        self.df_filtered = self.df.dropna() #TODO handle pseudo atoms
         self.T = self.df.columns[3:].astype(float)
 
         n_colors = self.df.shape[0]
