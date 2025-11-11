@@ -22,6 +22,7 @@ class data_fitter():
              output_dir (str, optional): The path to the output directory. Defaults to None.
          """
         self.config = config
+        self._validate_config()
         self.initial_Tm = self.config['Tm']
         self.data_file = data_file
         self.output_dir = output_dir
@@ -49,7 +50,57 @@ class data_fitter():
 
         self.sigT = self.df.iloc[:-1,3:]
 
+    def _validate_config(self):
+        """Validates the configuration dictionary."""
+        # Validate frequency
+        if not isinstance(self.config.get("frequency"), (int, float)) or self.config["frequency"] <= 0:
+            raise ValueError("frequency must be a positive number.")
 
+        # Validate fit_method
+        if not isinstance(self.config.get("fit_method"), str):
+            raise ValueError("fit_method must be a string.")
+
+        # Validate data_path
+        if not isinstance(self.config.get("data_path"), str) or not os.path.exists(self.config["data_path"]):
+            raise ValueError("data_path must be a valid file path.")
+
+        # Validate sigA
+        sigA_options = {"lowest_T", "fit", "custom", "custom_temp"}
+        if self.config.get("sigA") not in sigA_options:
+            raise ValueError(f"sigA must be one of {sigA_options}")
+
+        # Validate sigB
+        sigB_options = {"0", "highest_T", "fit", "custom", "custom_temp"}
+        if self.config.get("sigB") not in sigB_options:
+            raise ValueError(f"sigB must be one of {sigB_options}")
+
+        # Validate correct_for_correlation_time
+        if not isinstance(self.config.get("correct_for_correlation_time"), bool):
+            raise ValueError("correct_for_correlation_time must be a True or False.")
+
+        # Validate max_iterations
+        if not isinstance(self.config.get("max_iterations"), int) or self.config["max_iterations"] <= 0:
+            raise ValueError("max_iterations must be a positive integer.")
+
+        # Validate Cp_model
+        if not isinstance(self.config.get("Cp_model"), bool):
+            raise ValueError("Cp_model must be a True or False.")
+
+        # Validate fit_SM
+        if not isinstance(self.config.get("fit_SM"), bool):
+            raise ValueError("fit_SM must be a True or False.")
+
+        # Validate Tm
+        if self.config.get("Tm") is not None and not isinstance(self.config.get("Tm"), (int, float)):
+            raise ValueError("Tm must be a number or None.")
+
+        # Validate fix_Tm
+        if not isinstance(self.config.get("fix_Tm"), bool):
+            raise ValueError("fix_Tm must be a True or False.")
+
+        # Validate ignore_lowest_T
+        if not isinstance(self.config.get("ignore_lowest_T"), bool):
+            raise ValueError("ignore_lowest_T must be a True or False.")
 
 
 
