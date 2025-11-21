@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import yaml
 import os
-from data_fitter import data_fitter
+from datafitter import DataFitter
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def fitter_instance(default_config):
     # Create a dummy output directory for the fitter instance
     output_dir = "tests/output"
     os.makedirs(output_dir, exist_ok=True)
-    return data_fitter(default_config["data_path"], config=default_config, output_dir=output_dir)
+    return DataFitter(default_config["data_path"], config=default_config, output_dir=output_dir)
 
 
 def test_viscocity(fitter_instance):

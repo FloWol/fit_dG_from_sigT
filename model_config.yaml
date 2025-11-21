@@ -6,7 +6,7 @@
 # reference sigma settings
 "sigA": "lowest_T"  # lowest_T, or custom for usage of sigA values in sigA column (not tested), // fit, or numeric value to be coded
 "sigB": "0"  # 0, highest_T or fit or custom for usage of values from file
-"correct_for_correlation_time": false  # recommended: True corrects sigma for T-dependent global correlation time
+"correct_for_correlation_time": False  # recommended: True corrects sigma for T-dependent global correlation time
 
 # Fitting equation settings
 "max_iterations": 1000
@@ -15,5 +15,11 @@
 "Tm": 300  # optional, is just used as an initial guess for Tm in the fit, numeric value in K or None (sets value to 1)
 "fix_Tm": false  # if True, Tm won't be fit (to be used with setting Tm above)
 
+# correlation time interpolation (if not all meassure temperatures have an experimental correlation time)
+"solvent": "H2O" # H2O or D2O supported
+"method": "StokesEinstein" # supports "StokesEinstein" and "linear" interpolation
+
 # test_features (will be removed in the future)
 "ignore_lowest_T": true  # ignores lowest temperature in plotting and fitting, use with "lowest_T"
+
+
